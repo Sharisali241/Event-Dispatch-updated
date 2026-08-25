@@ -5694,21 +5694,12 @@
         const email = document.getElementById("auth-email").value.trim();
         const msgEl = document.getElementById("auth-msg");
         msgEl.style.display = "none";
-        const ALLOWED_RESET_EMAIL = "happenings.co1@gmail.com";
 
         if (!email) {
           msgEl.style.color = "var(--red)";
           msgEl.textContent = "Please enter your email address first.";
           msgEl.style.display = "block";
           toast("Please enter your email address first");
-          return;
-        }
-
-        if (email.toLowerCase() !== ALLOWED_RESET_EMAIL.toLowerCase()) {
-          msgEl.style.color = "var(--red)";
-          msgEl.textContent = "Password reset is only available for the authorized email.";
-          msgEl.style.display = "block";
-          toast("Password reset is only available for the authorized email");
           return;
         }
 
@@ -5802,12 +5793,16 @@
 
       var sessionLoaded = false;
       _sb.auth.onAuthStateChange((event, session) => {
+        // A recovery link also produces a session, so the SIGNED_IN branch below used to
+        // run too and bounce the user to the dashboard 350ms before the password modal
+        // opened. Recovery is terminal: show the modal and stop.
         if (event === 'PASSWORD_RECOVERY') {
           document.getElementById("s-login").style.display = "none";
-          setTimeout(() => oM('update-pass-modal'), 500);
+          oM('update-pass-modal');
+          return;
         }
         if (event === 'SIGNED_IN' || session) {
-          if (sessionLoaded && event !== 'PASSWORD_RECOVERY') return; // Prevent redundant loads
+          if (sessionLoaded) return; // Prevent redundant loads
           sessionLoaded = true;
           document.getElementById("s-login").style.display = "none";
           // Show user email in topbar
@@ -5960,14 +5955,22 @@
       function oM(id) { document.getElementById(id).classList.add("open"); }
       function cM(id) { document.getElementById(id).classList.remove("open"); }
       var BIZ_WA = "923302894915"; // Default business WhatsApp number
+      // wa.me on every platform. The old code sent desktop to web.whatsapp.com/send, which
+      // silently opens a dead tab unless WhatsApp Web is already logged in; wa.me hands off
+      // to the desktop app or the web client, whichever the machine actually has.
+      //
+      // wa.me needs a full international number. Numbers are typed locally here
+      // ("0330 289 4915"), so a leading 0 is swapped for the 92 country code.
+      function normalizeWaPhone(phone) {
+        var d = String(phone || "").replace(/[^0-9]/g, "");
+        if (!d) return "";
+        if (d.charAt(0) === "0") d = "92" + d.slice(1);
+        return d;
+      }
       function getWaUrl(phone, msg) {
-        var isMo = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        var target = phone ? phone.replace(/[^0-9]/g, "") : "";
-        if (target) {
-          return isMo ? "https://wa.me/" + target + "?text=" + msg : "https://web.whatsapp.com/send?phone=" + target + "&text=" + msg;
-        } else {
-          return isMo ? "https://wa.me/?text=" + msg : "https://web.whatsapp.com/send?text=" + msg;
-        }
+        var target = normalizeWaPhone(phone);
+        return target ? "https://wa.me/" + target + "?text=" + msg
+                      : "https://wa.me/?text=" + msg;
       }
       // msg is PLAIN text with real newlines; goWA does the URL encoding. Hand-writing the
       // newline escapes and concatenating raw names/venues used to truncate the message at
@@ -6015,7 +6018,7 @@
           tempDiv.style.cssText = 'position: absolute; left: -9999px; top: -9999px; width: 210mm; background: white; font-family: Jost, sans-serif;';
           tempDiv.id = 'temp-quote-pdf';
           
-          var itemsPerPage = 24;
+          var itemsPerPage = 20;
           var pages = [];
           for (var i = 0; i < quoteLines.length; i += itemsPerPage) { pages.push(quoteLines.slice(i, i + itemsPerPage)); }
 
@@ -6043,10 +6046,10 @@
               "<table style='width:100%; font-size:9pt; color:#1A0F08; border-collapse:collapse; font-family:\"Jost\", sans-serif;'>" +
               "<tr><td style='padding:3pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase;'>Client Name</td><td style='padding:3pt 0; color:#000; font-weight:800; width:180pt; text-transform:uppercase;'>" + esc(clientName) + "</td>" +
               "<td style='padding:3pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase; text-align:right;'>Date</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right; text-transform:uppercase;'>" + esc(displayDate) + "</td></tr>" +
-              "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Name of Event</td><td style='padding:3pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.eventNature || "-") + "</td>" +
+              "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Nature of Event</td><td style='padding:3pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.eventNature || "-") + "</td>" +
               "<td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Guests</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right;'>" + esc(quoteInfo.guests || "-") + "</td></tr>" +
               "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Location</td><td style='padding:3pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.location || "-") + "</td>" +
-              "<td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Time Preference</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right;'>" + esc(quoteInfo.timePreference || "-") + "</td></tr>" +
+              "<td style='padding:3pt 0;'></td><td style='padding:3pt 0;'></td></tr>" +
               "</table></div>" +
 
               "<div style='font-size:10pt; color:#333; margin-bottom:8pt; line-height:1.4;'>Dear " + esc(clientName) + ", We are pleased to submit the quotation for the following:</div>" +
@@ -6079,18 +6082,23 @@
 
           document.body.appendChild(tempDiv);
 
+          // margin MUST stay 0. Each page div above is already a full 210x297mm sheet with
+          // its own 15mm/20mm padding; adding a pdf margin shrinks the usable area to
+          // 190x277mm, so every page overflowed and html2pdf split it early — which is why
+          // only ~10 of the 20 line items landed on the first sheet.
           const opt = {
-            margin: 10,
+            margin: 0,
             filename: 'Quotation-' + (quoteInfo.clientName || 'Client') + '.pdf',
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'] }
           };
           const pdfBlob = await html2pdf().set(opt).from(tempDiv).output('blob');
           var file = new File([pdfBlob], opt.filename, { type: "application/pdf" });
           var publicUrl = await uploadToR2(file);
           var msg = "*Quotation for " + clientName + "*\n\nView or download here:\n" + publicUrl;
-          if (waWin) waWin.location.href = getWaUrl(null, encodeURIComponent(msg));
+          if (waWin) waWin.location.href = getWaUrl(quoteInfo.phone || "", encodeURIComponent(msg));
           else toast("Please allow pop-ups to share on WhatsApp.");
           toast("Quotation ready to share!");
         } catch (err) {
@@ -8237,7 +8245,6 @@
         h += "<input class='fi qt-info' id='qt-date' type='date' style='flex:1.2;height:45px;background:#fff;border:none;border-radius:10px;color:#333;font-size:14px;padding:0 15px;' value='" + esc(quoteInfo.date || '') + "'>";
         h += "<input class='fi qt-info' id='qt-guests' type='number' placeholder='Guests' style='flex:1;height:45px;background:#fff;border:none;border-radius:10px;color:#333;font-size:14px;padding:0 15px;' value='" + esc(quoteInfo.guests || '') + "'>";
         h += "</div>";
-        h += "<input class='fi qt-info' id='qt-time-pref' placeholder='Time Preference' style='height:45px;background:#fff;border:none;border-radius:10px;color:#333;font-size:14px;padding:0 15px;' value='" + esc(quoteInfo.timePreference || '') + "'>";
         h += "</div></div>";
 
         h += "<div style='background:#1A0F08;border-radius:16px;padding:25px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.2);'>";
@@ -8328,7 +8335,6 @@
             if (id === 'qt-location') quoteInfo.location = this.value;
             if (id === 'qt-date') quoteInfo.date = this.value;
             if (id === 'qt-guests') quoteInfo.guests = this.value;
-            if (id === 'qt-time-pref') quoteInfo.timePreference = this.value;
             renderQuoteLines();
           };
           el.addEventListener("input", updateInfo);
@@ -8455,8 +8461,8 @@
         ph += "<div style='margin-bottom:30px; border-top:2px solid #000; border-bottom:2px solid #000; padding:15px 0;'>";
         ph += "<table style='width:100%; font-size:12px; color:#1A0F08; border-collapse:collapse; font-family:Jost, sans-serif;'>";
         ph += "<tr><td style='padding:6px 0; color:#000; font-weight:700; width:120px; text-transform:uppercase;'>Client Name</td><td style='padding:6px 0; color:#000; font-weight:800; width:200px; text-transform:uppercase;'>" + esc(clientName) + "</td><td style='padding:6px 0; color:#000; font-weight:700; width:120px; text-transform:uppercase; text-align:right;'>Date</td><td style='padding:6px 0; color:#000; font-weight:800; text-align:right; text-transform:uppercase;'>" + esc(displayDate) + "</td></tr>";
-        ph += "<tr><td style='padding:6px 0; color:#000; font-weight:700; text-transform:uppercase;'>Name of Event</td><td style='padding:6px 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.eventNature || "-") + "</td><td style='padding:6px 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Guests</td><td style='padding:6px 0; color:#000; font-weight:800; text-align:right;'>" + esc(quoteInfo.guests || "-") + "</td></tr>";
-        ph += "<tr><td style='padding:6px 0; color:#000; font-weight:700; text-transform:uppercase;'>Location</td><td style='padding:6px 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.location || "-") + "</td><td style='padding:6px 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Time Preference</td><td style='padding:6px 0; color:#000; font-weight:800; text-align:right;'>" + esc(quoteInfo.timePreference || "-") + "</td></tr>";
+        ph += "<tr><td style='padding:6px 0; color:#000; font-weight:700; text-transform:uppercase;'>Nature of Event</td><td style='padding:6px 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.eventNature || "-") + "</td><td style='padding:6px 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Guests</td><td style='padding:6px 0; color:#000; font-weight:800; text-align:right;'>" + esc(quoteInfo.guests || "-") + "</td></tr>";
+        ph += "<tr><td style='padding:6px 0; color:#000; font-weight:700; text-transform:uppercase;'>Location</td><td style='padding:6px 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.location || "-") + "</td><td style='padding:6px 0;'></td><td style='padding:6px 0;'></td></tr>";
         ph += "</table></div>";
 
         ph += "<div style='font-size:14px; color:#333; margin-bottom:15px; line-height:1.5;'>Dear " + esc(clientName) + ", We are pleased to submit the quotation for the following:</div>";
@@ -8510,7 +8516,7 @@
 
       function printQuote() {
         if (!quoteLines.length) { toast("Add items to quote first."); return; }
-        var itemsPerPage = 24;
+        var itemsPerPage = 20;
         var pages = [];
         for (var i = 0; i < quoteLines.length; i += itemsPerPage) { pages.push(quoteLines.slice(i, i + itemsPerPage)); }
 
@@ -8546,10 +8552,10 @@
             "<table style='width:100%; font-size:9pt; color:#1A0F08; border-collapse:collapse; font-family:\"Jost\", sans-serif;'>" +
             "<tr><td style='padding:3pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase;'>Client Name</td><td style='padding:3pt 0; color:#000; font-weight:800; width:180pt; text-transform:uppercase;'>" + esc(clientName) + "</td>" +
             "<td style='padding:3pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase; text-align:right;'>Date</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right; text-transform:uppercase;'>" + esc(displayDate) + "</td></tr>" +
-            "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Name of Event</td><td style='padding:3pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.eventNature || "-") + "</td>" +
+            "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Nature of Event</td><td style='padding:3pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.eventNature || "-") + "</td>" +
             "<td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Guests</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right;'>" + esc(quoteInfo.guests || "-") + "</td></tr>" +
             "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Location</td><td style='padding:3pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(quoteInfo.location || "-") + "</td>" +
-            "<td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Time Preference</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right;'>" + esc(quoteInfo.timePreference || "-") + "</td></tr>" +
+            "<td style='padding:3pt 0;'></td><td style='padding:3pt 0;'></td></tr>" +
             "</table></div>" +
 
             "<div style='font-size:10pt; color:#333; margin-bottom:8pt; line-height:1.4;'>Dear " + esc(clientName) + ", We are pleased to submit the quotation for the following:</div>" +
