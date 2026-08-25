@@ -5644,9 +5644,14 @@
       // ── DB (localStorage) ──────────────────────────────────────────────────────
       var SU = "https://oqxlzyimondgwbqslibw.supabase.co";
       var SK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9xeGx6eWltb25kZ3dicXNsaWJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MzM1NDYsImV4cCI6MjA4OTQwOTU0Nn0.Sd9rK-l_eqmBF_sx7_FysGxmV5xY7x7e8idST3Ctc1k";
+      // persistSession must stay true. With it false the session lived in memory only, so
+      // every refresh — and every new tab — dropped the user back to the login screen, and
+      // autoRefreshToken had nothing to refresh. supabase-js v2 replays the stored session
+      // as an INITIAL_SESSION event, which the onAuthStateChange handler below already
+      // covers via its `|| session` check.
       var _sb = supabase.createClient(SU, SK, {
         auth: {
-          persistSession: false,
+          persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true
         }
