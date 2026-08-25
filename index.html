@@ -4377,7 +4377,7 @@
       <div class="desk-nav-section">Content</div>
       <div class="desk-nav-item" data-screen="s-quote"><span class="dni-ic">&#128196;</span> Quotes</div>
       <div class="desk-nav-item" data-screen="s-media"><span class="dni-ic">&#128247;</span> Event Gallery</div>
-
+      <div class="desk-nav-item logout" id="desk-logout-btn"><span class="dni-ic">&#9211;</span> Log Out</div>
     </div>
     <div style="padding:16px 16px 12px;border-top:1px solid rgba(201,168,76,0.08);text-align:center;">
       <div style="font-size:10px;color:rgba(201,168,76,0.6);letter-spacing:.8px;line-height:1.6;">
@@ -4458,6 +4458,7 @@
       <div class="tb-acts">
         <span class="user-email-badge" id="user-email-badge" style="display:none;"></span>
         <button class="tbtn" id="fin-dash-btn">&#128176;</button>
+        <button class="tbtn" id="mob-logout-btn" title="Log out">Log Out</button>
       </div>
     </div>
     <div class="dash-scroll" id="dash-body"></div>
@@ -5794,8 +5795,16 @@
       }
 
       async function logout() {
-        await _sb.auth.signOut();
-        location.reload();
+        if (!confirm("Log out of " + BN + "?")) return;
+        try { await _sb.auth.signOut(); } catch (e) { /* sign out locally regardless */ }
+        // Drop the restore breadcrumbs, otherwise the next person to sign in on this
+        // device lands on the previous user's screen and record.
+        try {
+          ["cur_screen", "cur_detail_id", "inv_bkg_id", "cur_edit_bkn_id"].forEach(function (k) {
+            localStorage.removeItem(k);
+          });
+        } catch (e) { }
+        location.href = ROUTER_BASE;
       }
 
       var sessionLoaded = false;
@@ -11103,12 +11112,13 @@
       var authLogo = document.getElementById('auth-logo-img');
       if (logo && authLogo) authLogo.src = logo.src;
 
-      var asb = document.getElementById("auth-submit-btn");
-      if (asb) asb.onclick = handleAuth;
-      var atb = document.getElementById("auth-toggle-btn");
-      if (atb) atb.onclick = handleForgotPassword;
-      var snp = document.getElementById("save-new-pass-btn");
-      if (snp) snp.onclick = handleUpdatePassword;
+      // handleAuth / handleForgotPassword / handleUpdatePassword are already bound with
+      // bindEl() above. Re-binding them here as .onclick did not replace those listeners,
+      // it added a second one, so every click ran the handler twice — which made a single
+      // "Forgot Password" tap send two resetPasswordForEmail calls back to back. Supabase
+      // rate-limits the second, so the user saw an error even though the mail had gone.
+      bindEl("desk-logout-btn", "click", logout);
+      bindEl("mob-logout-btn", "click", logout);
 
       bindTasks();
 
