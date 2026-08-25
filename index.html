@@ -5712,7 +5712,9 @@
         btn.disabled = true; btn.textContent = "Sending...";
 
         try {
-          const redirectTo = window.location.origin + window.location.pathname;
+          // Pin to the app root, not the current path: routes are real paths now, so
+          // pathname varies by screen and Supabase would need each one allowlisted.
+          const redirectTo = window.location.origin + ROUTER_BASE;
           const { error } = await _sb.auth.resetPasswordForEmail(email, { redirectTo: redirectTo });
           if (error) throw error;
 
@@ -5825,7 +5827,7 @@
           // route. A deep link is restored by loadAll() once BKN is in memory, and this
           // timer would otherwise fire first and rewrite the hash to #/dashboard.
           setTimeout(() => {
-            if (parseHash()) return;
+            if (parseUrl()) return;
             if (curScreen === 's-login' || !curScreen) go("s-dash");
           }, 150);
         } else if (event === 'SIGNED_OUT') {
@@ -6266,13 +6268,17 @@
 
       // ── NAVIGATION ─────────────────────────────────────────────────────────────
       // ── ROUTING ────────────────────────────────────────────────────────────────
-      // Every screen gets a readable hash route, so the address bar always shows where
-      // you are, a refresh reopens that exact screen, and Back/Forward work. Screens that
-      // are about one record carry its id in the route (#/booking/42), which is what makes
-      // a refresh on a detail screen land back on the same record rather than the list.
+      // Every screen gets a real path, so the address bar shows /dashboard rather than
+      // /#/dashboard, a refresh reopens that exact screen, and Back/Forward work. Screens
+      // that are about one record carry its id (/booking/42), which is what makes a
+      // refresh on a detail screen land back on the same record rather than the list.
+      //
+      // Clean paths only work because vercel.json rewrites every unmatched path to
+      // index.html. On a plain static server without that rewrite, refreshing /dashboard
+      // is a 404 — see README.
       //
       // localStorage is still written by go() as a fallback for the very first visit
-      // (no hash yet); the hash wins whenever one is present.
+      // (bare "/" with no route); the URL wins whenever it carries one.
       var ROUTES = [
         { slug: "dashboard", screen: "s-dash" },
         { slug: "calendar", screen: "s-cal" },
@@ -6301,6 +6307,20 @@
         for (var i = 0; i < ROUTES.length; i++) if (ROUTES[i].slug === slug) return ROUTES[i];
         return null;
       }
+
+      // The app is not always served from the domain root (locally it may sit under
+      // /Event-dispatch/), so the prefix the routes hang off is worked out once, at load,
+      // by stripping any route already present in the path.
+      function computeRouterBase() {
+        var segs = location.pathname.replace(/\/index\.html$/i, "/").split("/").filter(Boolean);
+        for (var take = Math.min(2, segs.length); take >= 1; take--) {
+          var first = decodeURIComponent(segs[segs.length - take]);
+          if (routeForSlug(first)) { segs = segs.slice(0, segs.length - take); break; }
+        }
+        return "/" + (segs.length ? segs.join("/") + "/" : "");
+      }
+      var ROUTER_BASE = computeRouterBase();
+
       // Booking ids arrive as strings from the URL but may be numbers in BKN, so every
       // lookup here compares as strings and then keeps the record's own id.
       function findBknById(id) {
@@ -6316,26 +6336,31 @@
         return "";
       }
 
-      function hashForScreen(screen) {
+      function pathForScreen(screen) {
         var r = routeForScreen(screen);
         if (!r) return "";
         var id = routeParamId(r);
-        return "#/" + r.slug + (id ? "/" + encodeURIComponent(id) : "");
+        return ROUTER_BASE + r.slug + (id ? "/" + encodeURIComponent(id) : "");
       }
 
-      function parseHash() {
-        var raw = String(location.hash || "").replace(/^#\/?/, "");
-        if (!raw) return null;
-        var parts = raw.split("/").filter(Boolean);
-        if (!parts.length) return null;
+      // Reads the current path. Also accepts the old #/slug/id links so anything already
+      // bookmarked keeps working.
+      function parseUrl() {
+        var path = location.pathname;
+        if (path.indexOf(ROUTER_BASE) === 0) path = path.slice(ROUTER_BASE.length);
+        var parts = path.split("/").filter(Boolean);
+        if (!parts.length) {
+          var h = String(location.hash || "").replace(/^#\/?/, "");
+          if (!h) return null;
+          parts = h.split("/").filter(Boolean);
+          if (!parts.length) return null;
+        }
         var r = routeForSlug(decodeURIComponent(parts[0]));
         if (!r) return null;
         return { route: r, id: parts[1] ? decodeURIComponent(parts[1]) : "" };
       }
 
       // Restores the globals a routed screen needs, and returns the screen to open.
-      // A deep link whose record no longer exists falls back to the matching list screen
-      // instead of opening a blank detail page.
       function applyParsedRoute(p) {
         if (!p) return null;
         var r = p.route, id = p.id;
@@ -6356,31 +6381,38 @@
         return r.screen;
       }
 
-      // Set while go() is writing the hash, so the hashchange it triggers is ignored and
-      // navigation does not run twice.
-      var routingSelf = false;
-      // Guards the very first hashchange, before loadAll has restored anything.
+      // Guards the first popstate, before loadAll has restored anything.
       var routerReady = false;
+      // The first write replaces (normalising "/" to "/dashboard" without adding a history
+      // entry); every later navigation pushes, so Back returns to the previous screen.
+      var routerFirstWrite = true;
 
-      function syncHash(screen) {
-        var h = hashForScreen(screen);
-        if (!h || location.hash === h) return;
-        routingSelf = true;
-        try { location.hash = h; } finally { setTimeout(function () { routingSelf = false; }, 0); }
+      function syncUrl(screen) {
+        var path = pathForScreen(screen);
+        if (!path) return;
+        // Supabase puts its recovery/verification tokens in the fragment; keep the query
+        // string and drop nothing it needs.
+        var full = path + location.search;
+        if (location.pathname + location.search === full) return;
+        try {
+          if (routerFirstWrite) history.replaceState({ screen: screen }, "", full);
+          else history.pushState({ screen: screen }, "", full);
+          routerFirstWrite = false;
+        } catch (e) { /* file:// and sandboxed contexts reject pushState */ }
       }
 
-      window.addEventListener("hashchange", function () {
-        if (routingSelf || !routerReady) return;
-        var p = parseHash();
-        if (!p) return;
-        var screen = applyParsedRoute(p);
+      window.addEventListener("popstate", function () {
+        if (!routerReady) return;
+        var screen = applyParsedRoute(parseUrl());
+        // The URL already reflects the target, so go() -> syncUrl() is a no-op here and
+        // no duplicate history entry is created.
         if (screen && screen !== curScreen) go(screen);
       });
 
-      // Called once from loadAll: the hash wins, localStorage is the fallback.
+      // Called once from loadAll: the URL wins, localStorage is the fallback.
       function initialScreen() {
         routerReady = true;
-        var p = parseHash();
+        var p = parseUrl();
         if (p) {
           var screen = applyParsedRoute(p);
           if (screen) return screen;
@@ -6397,7 +6429,7 @@
         if (curDetailId) localStorage.setItem("cur_detail_id", curDetailId);
         if (invoiceBkgId) localStorage.setItem("inv_bkg_id", invoiceBkgId);
         if (curEditBknId) localStorage.setItem("cur_edit_bkn_id", curEditBknId);
-        syncHash(id);
+        syncUrl(id);
 
         if (isDesk) {
           renderDesk(id);
