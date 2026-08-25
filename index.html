@@ -10442,9 +10442,22 @@
         el.innerHTML = inv;
       }
 
+      // A long invoice used to break at a fixed 10 items and spill onto a second, mostly
+      // empty A4 sheet. Instead of a fixed count, every dimension below scales with the
+      // item count so the whole document compacts to fit one page. Only past ~40 items
+      // — where even the tightest tier cannot fit — does it paginate.
+      function invoiceDensity(n) {
+        if (n <= 12) return { pagePad: "12mm 15mm", logo: 55, title: 30, headMb: 20, infoPad: 3, infoMb: 15, intro: 10, introMb: 8, thPad: 7, rowPad: 7, rowFont: 9, amtFont: 10, totPad: 5, totFont: 10, balFont: 11, blockMb: 15, sigMb: 20, sigFont: 10, foot: 60, footFont: 9, addrFont: 7 };
+        if (n <= 18) return { pagePad: "10mm 14mm", logo: 46, title: 25, headMb: 13, infoPad: 2.5, infoMb: 10, intro: 9, introMb: 6, thPad: 5.5, rowPad: 5, rowFont: 8.5, amtFont: 9, totPad: 3.5, totFont: 9, balFont: 10, blockMb: 9, sigMb: 12, sigFont: 9, foot: 50, footFont: 8.5, addrFont: 6.5 };
+        if (n <= 26) return { pagePad: "8mm 12mm", logo: 38, title: 21, headMb: 9, infoPad: 2, infoMb: 7, intro: 8, introMb: 5, thPad: 4, rowPad: 3.4, rowFont: 7.8, amtFont: 8.2, totPad: 2.6, totFont: 8.2, balFont: 9, blockMb: 6, sigMb: 8, sigFont: 8, foot: 42, footFont: 8, addrFont: 6 };
+        return { pagePad: "7mm 10mm", logo: 30, title: 17, headMb: 6, infoPad: 1.4, infoMb: 5, intro: 7, introMb: 4, thPad: 3, rowPad: 2.1, rowFont: 7, amtFont: 7.4, totPad: 1.8, totFont: 7.4, balFont: 8, blockMb: 4, sigMb: 5, sigFont: 7, foot: 34, footFont: 7, addrFont: 5.5 };
+      }
+
       function printInvoice(b) {
         var items = b.invoiceItems || [];
-        var itemsPerPage = 10;
+        var d = invoiceDensity(items.length);
+        // Hard ceiling: past this the tightest tier genuinely runs out of sheet.
+        var itemsPerPage = 40;
         var pages = [];
         for (var i = 0; i < items.length; i += itemsPerPage) { pages.push(items.slice(i, i + itemsPerPage)); }
         if (pages.length === 0) pages.push([]);
@@ -10461,72 +10474,95 @@
           "<link href='https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&family=Jost:wght@400;500;600;700&display=swap' rel='stylesheet'>" +
           "<style>" +
           "@page { size: A4; margin: 0; }" +
-          "body { margin: 0; padding: 0; font-family: 'Jost', sans-serif; background: #fff; -webkit-print-color-adjust: exact; }" +
-          ".page { width: 210mm; min-height: 297mm; padding: 12mm 15mm; box-sizing: border-box; position: relative; display: flex; flex-direction: column; page-break-after: always; }" +
+          "body { margin: 0; padding: 0; font-family: 'Jost', sans-serif; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }" +
+          ".page { width: 210mm; height: 297mm; padding: " + d.pagePad + "; box-sizing: border-box; position: relative; overflow: hidden; page-break-after: always; }" +
           ".page:last-child { page-break-after: auto; }" +
+          // The tiers above size the document so it normally fits outright. This inner
+          // wrapper is what the fit-to-page pass at the bottom scales, as a backstop for
+          // long descriptions that wrap onto extra lines.
+          ".pinner { display: flex; flex-direction: column; min-height: 100%; transform-origin: top left; }" +
+          ".irow { display:flex; justify-content:space-between; align-items:center; padding:" + d.rowPad + "pt 16pt; background:#F9DCC4; }" +
+          ".irow .idesc { flex:1; font-size:" + d.rowFont + "pt; font-weight:700; color:#1A0F08; text-transform:uppercase; line-height:1.2; }" +
+          ".irow .iamt { font-size:" + d.amtFont + "pt; font-weight:700; color:#1A0F08; white-space:nowrap; margin-left:20pt; }" +
+          ".ttd { padding:" + d.totPad + "pt 16pt; text-align:right; font-weight:700; border:1px solid #ddd; color:#1A0F08; }" +
           "</style></head><body>";
 
         pages.forEach(function (pageItems, pIdx) {
           var isLast = (pIdx === pages.length - 1);
-          html += "<div class='page'>" +
-            "<div style='position:relative; display:flex; align-items:center; justify-content:center; margin-bottom:20pt;'>" +
-            (logoSrc ? "<img src='" + logoSrc + "' style='position:absolute; left:0; height:55pt; width:55pt; object-fit:contain; border-radius:50%; border:2pt solid #8B6E32; padding:2pt; background:#fff;'>" : "") +
+          html += "<div class='page'><div class='pinner'>" +
+            "<div style='position:relative; display:flex; align-items:center; justify-content:center; margin-bottom:" + d.headMb + "pt;'>" +
+            (logoSrc ? "<img src='" + logoSrc + "' style='position:absolute; left:0; height:" + d.logo + "pt; width:" + d.logo + "pt; object-fit:contain; border-radius:50%; border:2pt solid #8B6E32; padding:2pt; background:#fff;'>" : "") +
             "<div style='text-align:center;'>" +
-            "<h1 style='font-family:\"Cormorant Garamond\", serif; font-size:30pt; margin:0; font-weight:700; color:#1A0F08; letter-spacing:1px; line-height:1;'>Happenings.co</h1>" +
+            "<h1 style='font-family:\"Cormorant Garamond\", serif; font-size:" + d.title + "pt; margin:0; font-weight:700; color:#1A0F08; letter-spacing:1px; line-height:1;'>Happenings.co</h1>" +
             "<div style='display:flex; align-items:center; gap:8pt; justify-content:center; color:#C9A84C; margin-top:4pt;'>" +
             "<div style='height:1.5pt; width:40pt; background:#C9A84C;'></div>" +
-            "<span style='font-size:9pt; letter-spacing:2pt; font-weight:500; text-transform:uppercase;'>Event organiser</span>" +
+            "<span style='font-size:" + (d.intro - 1) + "pt; letter-spacing:2pt; font-weight:500; text-transform:uppercase;'>Event organiser</span>" +
             "<div style='height:1.5pt; width:40pt; background:#C9A84C;'></div>" +
             "</div>" +
             "</div>" +
             "</div>" +
 
-            "<div style='margin-bottom:15pt; border-top:2pt solid #000; border-bottom:2pt solid #000; padding:8pt 0;'>" +
-            "<table style='width:100%; font-size:9pt; color:#1A0F08; border-collapse:collapse; font-family:\"Jost\", sans-serif;'>" +
-            "<tr><td style='padding:3pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase;'>Customer</td><td style='padding:3pt 0; color:#000; font-weight:800; width:180pt; text-transform:uppercase;'>" + esc(b.name) + "</td>" +
-            "<td style='padding:3pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase; text-align:right;'>Booking Date</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right; text-transform:uppercase;'>" + esc(bDate) + "</td></tr>" +
-            "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Contact Pers.</td><td style='padding:3pt 0; color:#000; font-weight:800;'>-</td>" +
-            "<td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Mobile #</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right;'>" + esc(b.phone || "0000") + "</td></tr>" +
-            "<tr><td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Location</td><td style='padding:3pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(b.venue || "ABS") + "</td>" +
-            "<td style='padding:3pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Event Date</td><td style='padding:3pt 0; color:#000; font-weight:800; text-align:right; text-transform:uppercase;'>" + esc(fD(b.date)) + "</td></tr>" +
+            "<div style='margin-bottom:" + d.infoMb + "pt; border-top:2pt solid #000; border-bottom:2pt solid #000; padding:" + (d.infoPad * 2) + "pt 0;'>" +
+            "<table style='width:100%; font-size:" + d.intro * 0.9 + "pt; color:#1A0F08; border-collapse:collapse; font-family:\"Jost\", sans-serif;'>" +
+            "<tr><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase;'>Customer</td><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:800; width:180pt; text-transform:uppercase;'>" + esc(b.name) + "</td>" +
+            "<td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:700; width:90pt; text-transform:uppercase; text-align:right;'>Booking Date</td><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:800; text-align:right; text-transform:uppercase;'>" + esc(bDate) + "</td></tr>" +
+            "<tr><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Contact Pers.</td><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:800;'>-</td>" +
+            "<td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Mobile #</td><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:800; text-align:right;'>" + esc(b.phone || "0000") + "</td></tr>" +
+            "<tr><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:700; text-transform:uppercase;'>Location</td><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:800; text-transform:uppercase;'>" + esc(b.venue || "ABS") + "</td>" +
+            "<td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:700; text-transform:uppercase; text-align:right;'>Event Date</td><td style='padding:" + d.infoPad + "pt 0; color:#000; font-weight:800; text-align:right; text-transform:uppercase;'>" + esc(fD(b.date)) + "</td></tr>" +
             "</table></div>" +
 
-            "<div style='font-size:10pt; color:#333; margin-bottom:8pt; line-height:1.4;'>Dear " + esc(b.name) + ", We are pleased to submit the invoice for the following:</div>" +
-            "<div style='background:#000; color:#fff; padding:7pt 16pt; display:flex; justify-content:space-between; font-weight:700; font-size:9pt; letter-spacing:1pt; text-transform:uppercase;'>" +
+            "<div style='font-size:" + d.intro + "pt; color:#333; margin-bottom:" + d.introMb + "pt; line-height:1.3;'>Dear " + esc(b.name) + ", We are pleased to submit the invoice for the following:</div>" +
+            "<div style='background:#000; color:#fff; padding:" + d.thPad + "pt 16pt; display:flex; justify-content:space-between; font-weight:700; font-size:" + (d.rowFont) + "pt; letter-spacing:1pt; text-transform:uppercase;'>" +
             "<span>Description</span><span>Total</span></div>" +
-            "<div style='border:none; flex-grow:1;'>";
+            "<div style='border:none;'>";
 
           pageItems.forEach(function (l) {
-            html += "<div style='display:flex; justify-content:space-between; align-items:center; padding:7pt 16pt; background:#F9DCC4;'>" +
-              "<div style='flex:1; font-size:9pt; font-weight:700; color:#1A0F08; text-transform:uppercase;'>" + esc(l.desc) + "</div>" +
-              "<div style='font-size:10pt; font-weight:700; color:#1A0F08; white-space:nowrap; margin-left:20pt;'>" + (l.amt && parseFloat(l.amt) !== 0 ? parseFloat(l.amt).toLocaleString() + "/-" : "-") + "</div></div>";
+            html += "<div class='irow'>" +
+              "<div class='idesc'>" + esc(l.desc) + "</div>" +
+              "<div class='iamt'>" + (l.amt && parseFloat(l.amt) !== 0 ? parseFloat(l.amt).toLocaleString() + "/-" : "-") + "</div></div>";
           });
           html += "</div>";
 
           if (isLast) {
             html += "<div style='display:flex; flex-direction:column; align-items:flex-end; margin-top:0;'>" +
-              "<table style='width:100%; border-collapse:collapse; margin-bottom:10pt;'>" +
-              "<tr><td style='padding:5pt 16pt; text-align:right; font-weight:700; font-size:9pt; border:1px solid #ddd; border-top:none; border-right:none; color:#1A0F08; text-transform:uppercase;'>Total Amount</td>" +
-              "<td style='padding:5pt 16pt; text-align:right; font-weight:700; font-size:10pt; border:1px solid #ddd; border-top:none; width:130pt; color:#1A0F08; background:#fff;'>" + total.toLocaleString() + "/-</td></tr>" +
-              "<tr><td style='padding:5pt 16pt; text-align:right; font-weight:700; font-size:9pt; border:1px solid #ddd; border-right:none; color:#1A0F08; text-transform:uppercase;'>Advance Paid</td>" +
-              "<td style='padding:5pt 16pt; text-align:right; font-weight:700; font-size:10pt; border:1px solid #ddd; width:130pt; color:#1A0F08; background:#fff;'>" + adv.toLocaleString() + "/-</td></tr>" +
-              "<tr><td style='padding:5pt 16pt; text-align:right; font-weight:700; font-size:9pt; border:1px solid #ddd; border-right:none; border-bottom:2pt solid #1A0F08; color:#B85C4A; text-transform:uppercase;'>Balance</td>" +
-              "<td style='padding:5pt 16pt; text-align:right; font-weight:800; font-size:12pt; border:1px solid #ddd; border-bottom:2pt solid #1A0F08; width:130pt; color:#B85C4A; background:#fff;'>" + bal.toLocaleString() + "/-</td></tr>" +
+              "<table style='width:100%; border-collapse:collapse; margin-bottom:" + d.blockMb + "pt;'>" +
+              "<tr><td class='ttd' style='font-size:" + (d.totFont - 1) + "pt; border-top:none; border-right:none; text-transform:uppercase;'>Total Amount</td>" +
+              "<td class='ttd' style='font-size:" + d.totFont + "pt; border-top:none; width:130pt; background:#fff;'>" + total.toLocaleString() + "/-</td></tr>" +
+              "<tr><td class='ttd' style='font-size:" + (d.totFont - 1) + "pt; border-right:none; text-transform:uppercase;'>Advance Paid</td>" +
+              "<td class='ttd' style='font-size:" + d.totFont + "pt; width:130pt; background:#fff;'>" + adv.toLocaleString() + "/-</td></tr>" +
+              "<tr><td class='ttd' style='font-size:" + (d.totFont - 1) + "pt; border-right:none; border-bottom:2pt solid #1A0F08; color:#B85C4A; text-transform:uppercase;'>Balance</td>" +
+              "<td class='ttd' style='font-weight:800; font-size:" + (d.totFont + 2) + "pt; border-bottom:2pt solid #1A0F08; width:130pt; color:#B85C4A; background:#fff;'>" + bal.toLocaleString() + "/-</td></tr>" +
               "</table></div>" +
-              "<div style='margin-bottom:15pt; font-size:11pt; font-weight:800; color:#1A0F08; text-transform:uppercase;'>Balance Amount: RS " + bal.toLocaleString() + "/- " + numToWords(bal).toUpperCase() + "</div>" +
-              "<div style='font-size:10pt; color:#333; margin-bottom:15pt;'>Thanking and assuring you for our best services all time, Insha'Allah</div>" +
-              "<div style='margin-bottom:20pt; font-size:10pt; line-height:1.4;'><div>Yours Truly</div><div style='font-weight:800; text-transform:uppercase; margin-top:3pt;'>Finance Manager</div><div style='font-weight:800; text-transform:uppercase;'>" + esc(BN) + "</div></div>" +
-              "<div style='font-size:8pt; color:#777; font-style:italic;'>System generated bill. Signature not required</div>";
+              "<div style='margin-bottom:" + d.blockMb + "pt; font-size:" + d.balFont + "pt; font-weight:800; color:#1A0F08; text-transform:uppercase; line-height:1.3;'>Balance Amount: RS " + bal.toLocaleString() + "/- " + numToWords(bal).toUpperCase() + "</div>" +
+              "<div style='font-size:" + d.sigFont + "pt; color:#333; margin-bottom:" + d.blockMb + "pt; line-height:1.3;'>Thanking and assuring you for our best services all time, Insha'Allah</div>" +
+              "<div style='margin-bottom:" + d.sigMb + "pt; font-size:" + d.sigFont + "pt; line-height:1.3;'><div>Yours Truly</div><div style='font-weight:800; text-transform:uppercase; margin-top:3pt;'>Finance Manager</div><div style='font-weight:800; text-transform:uppercase;'>" + esc(BN) + "</div></div>" +
+              "<div style='font-size:" + (d.sigFont - 2) + "pt; color:#777; font-style:italic;'>System generated bill. Signature not required</div>";
           }
 
-          html += "<div style='background:#5B4136; color:#fff; display:flex; gap:15pt; align-items:stretch; height:60pt; margin-top:auto; overflow:hidden;'>" +
-            "<div style='background:#2C1A0E; padding:10pt 20pt; display:flex; align-items:center; gap:10pt; clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%); flex:1.5;'>" +
-            "<div style='font-size:22pt;'>📍</div><div style='font-size:7pt; line-height:1.3; font-style:italic;'>Shop no.1 SA-10 cmchs,<br>near Rangoonwala hall<br>Bahadurabad, Karachi.</div></div>" +
+          html += "<div style='background:#5B4136; color:#fff; display:flex; gap:15pt; align-items:stretch; height:" + d.foot + "pt; margin-top:auto; overflow:hidden; flex-shrink:0;'>" +
+            "<div style='background:#2C1A0E; padding:" + (d.foot * 0.17) + "pt 20pt; display:flex; align-items:center; gap:10pt; clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%); flex:1.5;'>" +
+            "<div style='font-size:" + (d.foot * 0.37) + "pt;'>📍</div><div style='font-size:" + d.addrFont + "pt; line-height:1.3; font-style:italic;'>Shop no.1 SA-10 cmchs,<br>near Rangoonwala hall<br>Bahadurabad, Karachi.</div></div>" +
             "<div style='display:flex; align-items:center; gap:20pt; padding:0 20pt 0 10pt; flex:1;'>" +
-            "<div style='display:flex; align-items:center; gap:6pt; font-size:9pt;'><span style='background:rgba(255,255,255,0.2); width:25pt; height:25pt; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12pt;'>📸</span><span>Happenings.co</span></div>" +
-            "<div style='display:flex; align-items:center; gap:6pt; font-size:9pt;'><span style='background:rgba(255,255,255,0.2); width:25pt; height:25pt; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12pt;'>📞</span><span>03302894915</span></div></div>" +
-            "<div style='position:absolute; bottom:0; left:0; width:100%; height:4pt; background:#C9A84C;'></div></div></div>";
+            "<div style='display:flex; align-items:center; gap:6pt; font-size:" + d.footFont + "pt;'><span style='background:rgba(255,255,255,0.2); width:" + (d.foot * 0.42) + "pt; height:" + (d.foot * 0.42) + "pt; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:" + (d.foot * 0.2) + "pt;'>📸</span><span>Happenings.co</span></div>" +
+            "<div style='display:flex; align-items:center; gap:6pt; font-size:" + d.footFont + "pt;'><span style='background:rgba(255,255,255,0.2); width:" + (d.foot * 0.42) + "pt; height:" + (d.foot * 0.42) + "pt; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:" + (d.foot * 0.2) + "pt;'>📞</span><span>03302894915</span></div></div>" +
+            "<div style='position:absolute; bottom:0; left:0; width:100%; height:4pt; background:#C9A84C;'></div></div></div></div>";
         });
+
+        // Fit-to-page backstop. Measures what actually rendered — after fonts, the logo
+        // and any wrapped descriptions — and shrinks a page only if it still overruns the
+        // sheet. Nothing is clipped and nothing spills onto a second page.
+        html += "<script>(function(){function fit(){" +
+          "var pgs=document.querySelectorAll('.page');" +
+          "for(var i=0;i<pgs.length;i++){var pg=pgs[i],inn=pg.firstElementChild;if(!inn)continue;" +
+          "inn.style.transform='';inn.style.width='';inn.style.height='';" +
+          "var cs=getComputedStyle(pg);" +
+          "var avail=pg.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);" +
+          "var h=inn.scrollHeight;" +
+          "if(h>avail+1){var f=avail/h;inn.style.height=h+'px';inn.style.width=(100/f)+'%';inn.style.transform='scale('+f+')';}}}" +
+          "window.addEventListener('load',fit);window.addEventListener('beforeprint',fit);fit();" +
+          "if(document.fonts&&document.fonts.ready){document.fonts.ready.then(fit);}" +
+          "})();<\/script>";
 
         html += "</body></html>";
         var win = window.open("", "_blank");
