@@ -5709,10 +5709,51 @@
           return;
         }
 
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          msgEl.style.color = "var(--red)";
+          msgEl.textContent = "That does not look like a valid email address.";
+          msgEl.style.display = "block";
+          toast("Enter a valid email address");
+          return;
+        }
+
         const btn = document.getElementById("auth-submit-btn");
         btn.disabled = true; btn.textContent = "Sending...";
 
         try {
+          // Supabase always reports success for /recover, even for an address that has
+          // no account, so an unregistered user would be left waiting for mail that was
+          // never sent. /api/check-email does the lookup server-side (it needs the
+          // service_role key) purely so we can say so.
+          //
+          // If the check is unreachable or unconfigured we deliberately fall through and
+          // send anyway — a broken helper must never block a real password reset.
+          try {
+            const chk = await fetch("/api/check-email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: email })
+            });
+            if (chk.ok) {
+              const info = await chk.json();
+              if (info && info.registered === false) {
+                msgEl.style.color = "var(--red)";
+                msgEl.textContent = "This email is not registered.";
+                msgEl.style.display = "block";
+                toast("This email is not registered");
+                return;
+              }
+            } else if (chk.status === 429) {
+              msgEl.style.color = "var(--red)";
+              msgEl.textContent = "Too many attempts. Please wait a minute and try again.";
+              msgEl.style.display = "block";
+              toast("Too many attempts");
+              return;
+            }
+          } catch (checkErr) {
+            console.warn("check-email unavailable, sending reset anyway:", checkErr);
+          }
+
           // Pin to the app root, not the current path: routes are real paths now, so
           // pathname varies by screen and Supabase would need each one allowlisted.
           const redirectTo = window.location.origin + ROUTER_BASE;
