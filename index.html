@@ -5821,8 +5821,11 @@
           }
           initLayout();
           loadAll();
-          // Always redirect to dashboard ONLY after login
+          // Redirect to the dashboard after login — but only when the URL carries no
+          // route. A deep link is restored by loadAll() once BKN is in memory, and this
+          // timer would otherwise fire first and rewrite the hash to #/dashboard.
           setTimeout(() => {
+            if (parseHash()) return;
             if (curScreen === 's-login' || !curScreen) go("s-dash");
           }, 150);
         } else if (event === 'SIGNED_OUT') {
@@ -6262,6 +6265,129 @@
       });
 
       // ── NAVIGATION ─────────────────────────────────────────────────────────────
+      // ── ROUTING ────────────────────────────────────────────────────────────────
+      // Every screen gets a readable hash route, so the address bar always shows where
+      // you are, a refresh reopens that exact screen, and Back/Forward work. Screens that
+      // are about one record carry its id in the route (#/booking/42), which is what makes
+      // a refresh on a detail screen land back on the same record rather than the list.
+      //
+      // localStorage is still written by go() as a fallback for the very first visit
+      // (no hash yet); the hash wins whenever one is present.
+      var ROUTES = [
+        { slug: "dashboard", screen: "s-dash" },
+        { slug: "calendar", screen: "s-cal" },
+        { slug: "bookings", screen: "s-bkns" },
+        { slug: "booking", screen: "s-bkn-detail", param: "detail" },
+        { slug: "new-booking", screen: "s-new-bkn", param: "edit" },
+        { slug: "event-details", screen: "s-event-details", param: "bkg" },
+        { slug: "dispatch", screen: "s-dispatch-hub" },
+        { slug: "dispatch-items", screen: "s-dispatch", param: "bkg" },
+        { slug: "dispatch-cart", screen: "s-cart", param: "bkg" },
+        { slug: "dispatch-sheet", screen: "s-sheet", param: "bkg" },
+        { slug: "inventory", screen: "s-inv" },
+        { slug: "inventory-reserve", screen: "s-inv-reserve" },
+        { slug: "finance", screen: "s-fin" },
+        { slug: "quote", screen: "s-quote" },
+        { slug: "gallery", screen: "s-media" },
+        { slug: "invoice", screen: "s-invoice", param: "invoice" },
+        { slug: "invoice-preview", screen: "s-invoice-preview", param: "invoice" }
+      ];
+
+      function routeForScreen(screen) {
+        for (var i = 0; i < ROUTES.length; i++) if (ROUTES[i].screen === screen) return ROUTES[i];
+        return null;
+      }
+      function routeForSlug(slug) {
+        for (var i = 0; i < ROUTES.length; i++) if (ROUTES[i].slug === slug) return ROUTES[i];
+        return null;
+      }
+      // Booking ids arrive as strings from the URL but may be numbers in BKN, so every
+      // lookup here compares as strings and then keeps the record's own id.
+      function findBknById(id) {
+        return BKN.find(function (x) { return String(x.id) === String(id); }) || null;
+      }
+
+      function routeParamId(route) {
+        if (!route || !route.param) return "";
+        if (route.param === "detail") return curDetailId == null ? "" : String(curDetailId);
+        if (route.param === "edit") return curEditBknId == null ? "" : String(curEditBknId);
+        if (route.param === "invoice") return invoiceBkgId == null ? "" : String(invoiceBkgId);
+        if (route.param === "bkg") return curBkg ? String(curBkg.id) : "";
+        return "";
+      }
+
+      function hashForScreen(screen) {
+        var r = routeForScreen(screen);
+        if (!r) return "";
+        var id = routeParamId(r);
+        return "#/" + r.slug + (id ? "/" + encodeURIComponent(id) : "");
+      }
+
+      function parseHash() {
+        var raw = String(location.hash || "").replace(/^#\/?/, "");
+        if (!raw) return null;
+        var parts = raw.split("/").filter(Boolean);
+        if (!parts.length) return null;
+        var r = routeForSlug(decodeURIComponent(parts[0]));
+        if (!r) return null;
+        return { route: r, id: parts[1] ? decodeURIComponent(parts[1]) : "" };
+      }
+
+      // Restores the globals a routed screen needs, and returns the screen to open.
+      // A deep link whose record no longer exists falls back to the matching list screen
+      // instead of opening a blank detail page.
+      function applyParsedRoute(p) {
+        if (!p) return null;
+        var r = p.route, id = p.id;
+        if (id) {
+          var rec = findBknById(id);
+          // BKN is loaded before the router runs, so a miss here means the booking is
+          // genuinely gone (deleted, or someone else's link) — show the list, not an
+          // empty detail screen. Before BKN loads there is nothing to check against.
+          if (!rec && BKN.length) return "s-bkns";
+          if (r.param === "detail") curDetailId = rec ? rec.id : id;
+          else if (r.param === "edit") curEditBknId = rec ? rec.id : id;
+          else if (r.param === "invoice") invoiceBkgId = rec ? rec.id : id;
+          else if (r.param === "bkg") { if (rec) curBkg = rec; }
+        }
+        if (r.param === "bkg" && !curBkg) return "s-bkns";
+        if (r.param === "detail" && !curDetailId) return "s-bkns";
+        if (r.param === "invoice" && !invoiceBkgId) return "s-bkns";
+        return r.screen;
+      }
+
+      // Set while go() is writing the hash, so the hashchange it triggers is ignored and
+      // navigation does not run twice.
+      var routingSelf = false;
+      // Guards the very first hashchange, before loadAll has restored anything.
+      var routerReady = false;
+
+      function syncHash(screen) {
+        var h = hashForScreen(screen);
+        if (!h || location.hash === h) return;
+        routingSelf = true;
+        try { location.hash = h; } finally { setTimeout(function () { routingSelf = false; }, 0); }
+      }
+
+      window.addEventListener("hashchange", function () {
+        if (routingSelf || !routerReady) return;
+        var p = parseHash();
+        if (!p) return;
+        var screen = applyParsedRoute(p);
+        if (screen && screen !== curScreen) go(screen);
+      });
+
+      // Called once from loadAll: the hash wins, localStorage is the fallback.
+      function initialScreen() {
+        routerReady = true;
+        var p = parseHash();
+        if (p) {
+          var screen = applyParsedRoute(p);
+          if (screen) return screen;
+        }
+        return localStorage.getItem("cur_screen") || "s-dash";
+      }
+
       function go(id, forceRef) {
         currentPages = {}; // Reset pagination when switching screens
 
@@ -6271,6 +6397,7 @@
         if (curDetailId) localStorage.setItem("cur_detail_id", curDetailId);
         if (invoiceBkgId) localStorage.setItem("inv_bkg_id", invoiceBkgId);
         if (curEditBknId) localStorage.setItem("cur_edit_bkn_id", curEditBknId);
+        syncHash(id);
 
         if (isDesk) {
           renderDesk(id);
@@ -6819,13 +6946,15 @@
           if (catsChanged) saveSetting("ev_cats", CATS);
 
           initBiz();
-          var sc = localStorage.getItem("cur_screen") || "s-dash";
           curDetailId = localStorage.getItem("cur_detail_id");
           invoiceBkgId = localStorage.getItem("inv_bkg_id");
           loadInvoiceDraft();
           loadQuoteDraft();
           curEditBknId = localStorage.getItem("cur_edit_bkn_id");
-          go(sc);
+          // Runs after BKN is populated so a deep link like #/booking/42 can resolve the
+          // record; falls back to localStorage when the URL carries no hash.
+          var sc = initialScreen();
+          go(sc, true);
           loadDraft();
           hd();
 
@@ -6840,8 +6969,7 @@
         }).catch(function (e) {
           console.timeEnd("loadAll");
           hd();
-          var sc = localStorage.getItem("cur_screen") || "s-dash";
-          go(sc);
+          go(initialScreen(), true);
           toast("Major load error: " + e.message);
         });
       }
